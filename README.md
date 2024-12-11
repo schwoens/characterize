@@ -1,6 +1,6 @@
 # Characterize
 
-A CLI Tool to make ascii art out of your images!
+A CLI tool to make ascii art out of your images!
 
 ## Usage
 
