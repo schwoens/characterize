@@ -230,6 +230,7 @@ dependencies = [
  "clap",
  "image",
  "imageproc",
+ "rand",
 ]
 
 [[package]]
