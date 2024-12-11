@@ -2,6 +2,8 @@
 
 A CLI tool to make ascii art out of your images!
 
+**WARNING**: This tool is still in early development and may introduce breaking changes!
+
 ## Usage
 
 ```$ characterize <FILENAME> <OUTFILE> --font <FONT> [OPTIONS]```
