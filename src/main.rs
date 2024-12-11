@@ -9,6 +9,7 @@ use anyhow::Result;
 use clap::{command, Parser};
 use image::{DynamicImage, GenericImageView, ImageReader, Rgb, RgbImage};
 use imageproc::drawing::draw_text_mut;
+use indicatif::ProgressBar;
 use rand::Rng;
 
 fn main() {
@@ -56,7 +57,7 @@ fn main() {
     let glyph_id = font.glyph_id('@');
 
     let glyph_width = scaled_font.h_advance(glyph_id) + scaled_font.h_side_bearing(glyph_id);
-    let glyph_height = scaled_font.height();
+    let glyph_height = scaled_font.height() - scaled_font.line_gap();
 
     let mut output_image = RgbImage::new(input_image.width(), input_image.height());
 
@@ -65,6 +66,10 @@ fn main() {
     let lower_letter_range = b'a'..=b'z';
     let mut letters: Vec<u8> = upper_letter_range.collect();
     letters.append(&mut lower_letter_range.collect());
+
+    let total_lines = input_image.height() / glyph_height.ceil() as u32;
+
+    let progress_bar = ProgressBar::new(total_lines as u64 + 1);
 
     let mut y = 0;
     while y < input_image.height() {
@@ -93,11 +98,13 @@ fn main() {
             x += glyph_width as u32;
         }
         y += glyph_height as u32;
+        progress_bar.inc(1);
     }
 
     if output_image.save(&args.outfile).is_err() {
         println!("Couldn't write to file: {}", args.outfile);
     }
+    progress_bar.finish();
 }
 
 #[derive(Parser, Debug)]
@@ -147,11 +154,5 @@ fn get_average_color(image_section: DynamicImage) -> Rgb<u8> {
 }
 
 fn sanatize_text(text: String) -> String {
-    text.replace(" ", "")
-        .replace("\n", "")
-        .replace(".", "")
-        .replace(",", "")
-        .replace("-", "")
-        .replace("\"", "")
-        .replace("\'", "")
+    text.replace(|c: char| !c.is_alphabetic(), "")
 }
