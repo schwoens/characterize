@@ -15,6 +15,11 @@ use rand::Rng;
 fn main() {
     let args = Args::parse();
 
+    if !args.textfile.is_empty() && !args.character.is_empty() {
+        println!("You cannot have both flags at the same time: --character, --textfile");
+        exit(0);
+    }
+
     // open the image and decode it
     let mut input_image = match ImageReader::open(&args.filename) {
         Ok(file) => file.decode().unwrap_or_else(|_| {
