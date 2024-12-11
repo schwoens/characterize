@@ -84,10 +84,13 @@ fn main() {
             let color = get_average_color(image_section);
 
             let glyph = match chars.next() {
-                None => {
-                    let letter_index = rng.gen_range(0..letters.len());
-                    letters[letter_index] as char
-                }
+                None => match args.character.is_empty() {
+                    true => {
+                        let letter_index = rng.gen_range(0..letters.len());
+                        letters[letter_index] as char
+                    }
+                    false => args.character.chars().next().unwrap(),
+                },
                 Some(c) => c,
             };
 
