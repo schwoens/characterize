@@ -1,7 +1,9 @@
 use std::{
+    char,
     fs::{read_to_string, File},
     io::Read,
     process::exit,
+    str::FromStr,
 };
 
 use ab_glyph::{Font, FontVec, ScaleFont};
@@ -10,14 +12,30 @@ use clap::{command, Parser};
 use image::{DynamicImage, GenericImageView, ImageReader, Rgb, RgbImage};
 use imageproc::drawing::draw_text_mut;
 use indicatif::ProgressBar;
-use rand::Rng;
+use rand::seq::SliceRandom;
 
 fn main() {
     let args = Args::parse();
 
+    // validate options
     if !args.textfile.is_empty() && !args.character.is_empty() {
         println!("You cannot have both flags at the same time: --character, --textfile");
         exit(0);
+    }
+
+    let charset =
+        Charset::from_str(&args.charset).expect("charset is validated during argument parsing");
+    let mut characters = get_characters(charset);
+
+    if !args.custom_charset.is_empty() {
+        characters = read_to_string(args.custom_charset)
+            .unwrap_or_else(|e| {
+                println!("Unable to read custom charset file: {}", e);
+                exit(0);
+            })
+            .trim()
+            .chars()
+            .collect();
     }
 
     // open the image and decode it
@@ -41,36 +59,28 @@ fn main() {
         );
     }
 
-    let font = get_font(&args.font).unwrap_or_else(|_| {
-        println!("Unable to read font file: {}", &args.font);
+    // load font
+    let font = get_font(&args.font).unwrap_or_else(|e| {
+        println!("Unable to read font file: {}", e);
         exit(0)
     });
 
+    // load text and initialize character iterator
     let text = match args.textfile.as_str() {
         "" => String::new(),
-        filename => sanatize_text(read_to_string(filename).unwrap_or_else(|_| {
-            println!("Could not read text file: {}", args.textfile);
+        filename => sanatize_text(read_to_string(filename).unwrap_or_else(|e| {
+            println!("Could not read text file: {}", e);
             exit(0);
         })),
     };
-
-    let mut chars = text.chars().cycle();
-
-    // get glyph width and height
-    let scaled_font = font.as_scaled(args.font_size);
-    let font_scale = scaled_font.scale;
-    let glyph_id = font.glyph_id('@');
-
-    let glyph_width = scaled_font.h_advance(glyph_id) + scaled_font.h_side_bearing(glyph_id);
-    let glyph_height = scaled_font.height() - scaled_font.line_gap();
+    let mut text_chars = text.chars().cycle();
 
     let mut output_image = RgbImage::new(input_image.width(), input_image.height());
 
     let mut rng = rand::thread_rng();
-    let upper_letter_range = b'A'..=b'Z';
-    let lower_letter_range = b'a'..=b'z';
-    let mut letters: Vec<u8> = upper_letter_range.collect();
-    letters.append(&mut lower_letter_range.collect());
+
+    let scaled_font = font.as_scaled(args.font_size);
+    let glyph_height = scaled_font.height() - scaled_font.line_gap();
 
     let total_lines = input_image.height() / glyph_height.ceil() as u32;
 
@@ -80,26 +90,29 @@ fn main() {
     while y < input_image.height() {
         let mut x = 0;
         while x < input_image.width() {
-            let image_section = input_image.crop_imm(x, y, glyph_width as u32, glyph_height as u32);
-            let color = get_average_color(image_section);
-
-            let glyph = match chars.next() {
+            let glyph = match text_chars.next() {
                 None => match args.character.is_empty() {
-                    true => {
-                        let letter_index = rng.gen_range(0..letters.len());
-                        letters[letter_index] as char
-                    }
+                    // use random character
+                    true => *characters
+                        .choose(&mut rng)
+                        .expect("vec should never be empty"),
                     false => args.character.chars().next().unwrap(),
                 },
                 Some(c) => c,
             };
+
+            let glyph_id = font.glyph_id(glyph);
+            let glyph_width =
+                scaled_font.h_advance(glyph_id) + scaled_font.h_side_bearing(glyph_id);
+            let image_section = input_image.crop_imm(x, y, glyph_width as u32, glyph_height as u32);
+            let color = get_average_color(image_section);
 
             draw_text_mut(
                 &mut output_image,
                 color,
                 x.try_into().unwrap(),
                 y.try_into().unwrap(),
-                font_scale,
+                args.font_size,
                 &font,
                 &glyph.to_string(),
             );
@@ -126,10 +139,28 @@ struct Args {
     font_size: f32,
     #[arg(short, long, default_value_t = 1.0)]
     scale: f32,
-    #[arg(short, long, default_value_t = String::from(""))]
+    #[arg(short, long, default_value_t = String::new())]
     character: String,
-    #[arg(long, default_value_t = String::from(""))]
+    #[arg(long, default_value_t = String::new())]
     textfile: String,
+    #[arg(long, default_value_t = String::from("latin"), ignore_case = true, value_parser = [
+        "latin",
+        "cyrillic",
+        "runic",
+        "hebrew",
+        "hiragana",
+        "katakana",
+        "hangul",
+        "cjkunified",
+        "emoticons",
+        "decimal",
+        "hexadecimal",
+        "binary",
+        "braille",
+    ])]
+    charset: String,
+    #[arg(long, default_value_t = String::new())]
+    custom_charset: String,
 }
 
 fn get_font(filename: &str) -> Result<FontVec> {
@@ -163,4 +194,82 @@ fn get_average_color(image_section: DynamicImage) -> Rgb<u8> {
 
 fn sanatize_text(text: String) -> String {
     text.replace(|c: char| !c.is_alphabetic(), "")
+}
+
+enum Charset {
+    Latin,
+    Cyrillic,
+    Runic,
+    Hebrew,
+    Hiragana,
+    Katakana,
+    Hangul,
+    CkjUnified,
+    Emoticons,
+    Decimal,
+    Binary,
+    Hexadecimal,
+    Braille,
+}
+
+impl FromStr for Charset {
+    type Err = ();
+
+    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> {
+        let s = s.to_lowercase();
+        match s.as_str() {
+            "latin" => Ok(Self::Latin),
+            "cyrillic" => Ok(Self::Cyrillic),
+            "runic" => Ok(Self::Runic),
+            "hebrew" => Ok(Self::Hebrew),
+            "hiragana" => Ok(Self::Hiragana),
+            "katakana" => Ok(Self::Katakana),
+            "hangul" => Ok(Self::Hangul),
+            "cjkunified" => Ok(Self::CkjUnified),
+            "emoticons" => Ok(Self::Emoticons),
+            "decimal" => Ok(Self::Decimal),
+            "hexadecimal" => Ok(Self::Hexadecimal),
+            "binary" => Ok(Self::Binary),
+            "braille" => Ok(Self::Braille),
+            _ => Err(()),
+        }
+    }
+}
+
+fn get_characters(charset: Charset) -> Vec<char> {
+    match charset {
+        Charset::Latin => ('\u{0041}'..='\u{007A}')
+            .filter(|c| c.is_alphabetic())
+            .collect(),
+        Charset::Cyrillic => ('\u{0400}'..='\u{04FF}')
+            .filter(|c| c.is_alphabetic())
+            .collect(),
+        Charset::Runic => ('\u{16A0}'..='\u{16FF}')
+            .filter(|c| c.is_alphabetic())
+            .collect(),
+        Charset::Hebrew => ('\u{0590}'..='\u{05FF}')
+            .filter(|c| c.is_alphabetic())
+            .collect(),
+        Charset::Hiragana => ('\u{3040}'..='\u{309F}')
+            .filter(|c| c.is_alphabetic())
+            .collect(),
+        Charset::Hangul => ('\u{1100}'..='\u{11FF}')
+            .filter(|c| c.is_alphabetic())
+            .collect(),
+        Charset::Katakana => ('\u{30A0}'..='\u{30FF}')
+            .filter(|c| c.is_alphabetic())
+            .collect(),
+        Charset::CkjUnified => ('\u{4E00}'..='\u{9FFF}')
+            .filter(|c| c.is_alphabetic())
+            .collect(),
+        Charset::Emoticons => ('\u{1F600}'..='\u{1F64F}').collect(),
+        Charset::Decimal => ('0'..='9').collect(),
+        Charset::Hexadecimal => {
+            let mut hexadecimal: Vec<char> = ('0'..='9').collect();
+            hexadecimal.extend('A'..='F');
+            hexadecimal
+        }
+        Charset::Binary => vec!['0', '1'],
+        Charset::Braille => ('\u{2800}'..='\u{28FF}').collect(),
+    }
 }
