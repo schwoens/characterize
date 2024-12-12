@@ -10,7 +10,10 @@ use ab_glyph::{Font, FontVec, ScaleFont};
 use anyhow::Result;
 use clap::{command, Parser};
 use image::{DynamicImage, GenericImageView, ImageReader, Rgb, RgbImage};
-use imageproc::drawing::draw_text_mut;
+use imageproc::{
+    drawing::{draw_filled_rect_mut, draw_text_mut},
+    rect::Rect,
+};
 use indicatif::ProgressBar;
 use rand::seq::SliceRandom;
 
@@ -26,6 +29,11 @@ fn main() {
     let charset =
         Charset::from_str(&args.charset).expect("charset is validated during argument parsing");
     let mut characters = get_characters(charset);
+
+    let background_color = get_rgb_from_hex(&args.background).unwrap_or_else(|_| {
+        println!("Invalid background color: {}", args.background);
+        exit(0);
+    });
 
     if !args.custom_charset.is_empty() {
         characters = read_to_string(args.custom_charset)
@@ -75,7 +83,16 @@ fn main() {
     };
     let mut text_chars = text.chars().cycle();
 
-    let mut output_image = RgbImage::new(input_image.width(), input_image.height());
+    let image_width = input_image.width();
+    let image_height = input_image.height();
+
+    let mut output_image = RgbImage::new(image_width, image_height);
+
+    draw_filled_rect_mut(
+        &mut output_image,
+        Rect::at(0, 0).of_size(image_width, image_height),
+        background_color,
+    );
 
     let mut rng = rand::thread_rng();
 
@@ -152,15 +169,19 @@ struct Args {
         "katakana",
         "hangul",
         "cjkunified",
+        "greek",
         "emoticons",
         "decimal",
         "hexadecimal",
         "binary",
         "braille",
+        "playingcards",
     ])]
     charset: String,
     #[arg(long, default_value_t = String::new())]
     custom_charset: String,
+    #[arg(short, long, default_value_t = String::from("#000000"))]
+    background: String,
 }
 
 fn get_font(filename: &str) -> Result<FontVec> {
@@ -192,6 +213,23 @@ fn get_average_color(image_section: DynamicImage) -> Rgb<u8> {
     Rgb::from([r as u8, g as u8, b as u8])
 }
 
+fn get_rgb_from_hex(hex: &str) -> Result<Rgb<u8>> {
+    let hex = hex.replace("#", "");
+
+    if hex.len() < 6 {
+        anyhow::bail!("invalid hex string");
+    }
+
+    let (r, rest) = hex.split_at(2);
+    let (g, b) = rest.split_at(2);
+
+    let r = u8::from_str_radix(r, 16)?;
+    let g = u8::from_str_radix(g, 16)?;
+    let b = u8::from_str_radix(b, 16)?;
+
+    Ok(Rgb::from([r, g, b]))
+}
+
 fn sanatize_text(text: String) -> String {
     text.replace(|c: char| !c.is_alphabetic(), "")
 }
@@ -205,11 +243,13 @@ enum Charset {
     Katakana,
     Hangul,
     CkjUnified,
+    Greek,
     Emoticons,
     Decimal,
     Binary,
     Hexadecimal,
     Braille,
+    PlayingCards,
 }
 
 impl FromStr for Charset {
@@ -226,11 +266,13 @@ impl FromStr for Charset {
             "katakana" => Ok(Self::Katakana),
             "hangul" => Ok(Self::Hangul),
             "cjkunified" => Ok(Self::CkjUnified),
+            "greek" => Ok(Self::Greek),
             "emoticons" => Ok(Self::Emoticons),
             "decimal" => Ok(Self::Decimal),
             "hexadecimal" => Ok(Self::Hexadecimal),
             "binary" => Ok(Self::Binary),
             "braille" => Ok(Self::Braille),
+            "playingcards" => Ok(Self::PlayingCards),
             _ => Err(()),
         }
     }
@@ -271,5 +313,13 @@ fn get_characters(charset: Charset) -> Vec<char> {
         }
         Charset::Binary => vec!['0', '1'],
         Charset::Braille => ('\u{2800}'..='\u{28FF}').collect(),
+        Charset::Greek => ('\u{0370}'..='\u{03E1}')
+            .filter(|c| c.is_alphabetic())
+            .collect(),
+        Charset::PlayingCards => ('\u{1F0A0}'..='\u{1F0DF}')
+            .filter(|c| {
+                *c != '\u{1F0AF}' && *c != '\u{1F0B0}' && *c != '\u{1F0C0}' && *c != '\u{1F0D0}'
+            })
+            .collect(),
     }
 }
