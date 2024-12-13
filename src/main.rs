@@ -30,9 +30,11 @@ fn main() {
         Charset::from_str(&args.charset).expect("charset is validated during argument parsing");
     let mut characters = get_characters(charset);
 
-    let background_color = get_rgb_from_hex(&args.background).unwrap_or_else(|_| {
-        println!("Invalid background color: {}", args.background);
-        exit(0);
+    let background_color = (!args.background.is_empty()).then(|| {
+        get_rgb_from_hex(&args.background).unwrap_or_else(|_| {
+            println!("Invalid background color: {}", args.background);
+            exit(0);
+        })
     });
 
     if !args.custom_charset.is_empty() {
@@ -88,11 +90,13 @@ fn main() {
 
     let mut output_image = RgbImage::new(image_width, image_height);
 
-    draw_filled_rect_mut(
-        &mut output_image,
-        Rect::at(0, 0).of_size(image_width, image_height),
-        background_color,
-    );
+    if let Some(background_color) = background_color {
+        draw_filled_rect_mut(
+            &mut output_image,
+            Rect::at(0, 0).of_size(image_width, image_height),
+            background_color,
+        );
+    }
 
     let mut rng = rand::thread_rng();
 
@@ -123,6 +127,16 @@ fn main() {
                 scaled_font.h_advance(glyph_id) + scaled_font.h_side_bearing(glyph_id);
             let image_section = input_image.crop_imm(x, y, glyph_width as u32, glyph_height as u32);
             let color = get_average_color(image_section);
+
+            if args.dynamic_background {
+                let dimmed_color = get_dimmed_color(&color);
+                draw_filled_rect_mut(
+                    &mut output_image,
+                    Rect::at(x.try_into().unwrap(), y.try_into().unwrap())
+                        .of_size(glyph_width.round() as u32, glyph_height.round() as u32),
+                    dimmed_color,
+                );
+            }
 
             draw_text_mut(
                 &mut output_image,
@@ -180,8 +194,10 @@ struct Args {
     charset: String,
     #[arg(long, default_value_t = String::new())]
     custom_charset: String,
-    #[arg(short, long, default_value_t = String::from("#000000"))]
+    #[arg(short, long, default_value_t = String::new())]
     background: String,
+    #[arg(short, long, default_value_t = false)]
+    dynamic_background: bool,
 }
 
 fn get_font(filename: &str) -> Result<FontVec> {
@@ -322,4 +338,12 @@ fn get_characters(charset: Charset) -> Vec<char> {
             })
             .collect(),
     }
+}
+
+fn get_dimmed_color(color: &Rgb<u8>) -> Rgb<u8> {
+    Rgb::from([
+        color[0] - (color[0] / 2),
+        color[1] - (color[1] / 2),
+        color[2] - (color[2] / 2),
+    ])
 }
