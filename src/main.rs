@@ -9,7 +9,7 @@ use std::{
 use ab_glyph::{Font, FontVec, ScaleFont};
 use anyhow::Result;
 use clap::{command, Parser};
-use image::{DynamicImage, GenericImageView, ImageReader, Rgb, RgbImage};
+use image::{DynamicImage, GenericImageView, ImageReader, Rgba, RgbaImage};
 use imageproc::{
     drawing::{draw_filled_rect_mut, draw_text_mut},
     rect::Rect,
@@ -31,7 +31,7 @@ fn main() {
     let mut characters = get_characters(charset);
 
     let background_color = (!args.background.is_empty()).then(|| {
-        get_rgb_from_hex(&args.background).unwrap_or_else(|_| {
+        get_rgba_from_hex(&args.background).unwrap_or_else(|_| {
             println!("Invalid background color: {}", args.background);
             exit(0);
         })
@@ -88,7 +88,7 @@ fn main() {
     let image_width = input_image.width();
     let image_height = input_image.height();
 
-    let mut output_image = RgbImage::new(image_width, image_height);
+    let mut output_image = RgbaImage::new(image_width, image_height);
 
     if let Some(background_color) = background_color {
         draw_filled_rect_mut(
@@ -207,10 +207,11 @@ fn get_font(filename: &str) -> Result<FontVec> {
     Ok(FontVec::try_from_vec(data)?)
 }
 
-fn get_average_color(image_section: DynamicImage) -> Rgb<u8> {
+fn get_average_color(image_section: DynamicImage) -> Rgba<u8> {
     let mut r: usize = 0;
     let mut g: usize = 0;
     let mut b: usize = 0;
+    let mut a: usize = 0;
 
     for pixel in image_section.pixels() {
         let color = pixel.2;
@@ -218,6 +219,7 @@ fn get_average_color(image_section: DynamicImage) -> Rgb<u8> {
         r += color[0] as usize;
         g += color[1] as usize;
         b += color[2] as usize;
+        a += color[3] as usize;
     }
 
     let pixel_amount = image_section.pixels().count();
@@ -225,11 +227,12 @@ fn get_average_color(image_section: DynamicImage) -> Rgb<u8> {
     r /= pixel_amount;
     g /= pixel_amount;
     b /= pixel_amount;
+    a /= pixel_amount;
 
-    Rgb::from([r as u8, g as u8, b as u8])
+    Rgba::from([r as u8, g as u8, b as u8, a as u8])
 }
 
-fn get_rgb_from_hex(hex: &str) -> Result<Rgb<u8>> {
+fn get_rgba_from_hex(hex: &str) -> Result<Rgba<u8>> {
     let hex = hex.replace("#", "");
 
     if hex.len() < 6 {
@@ -243,7 +246,7 @@ fn get_rgb_from_hex(hex: &str) -> Result<Rgb<u8>> {
     let g = u8::from_str_radix(g, 16)?;
     let b = u8::from_str_radix(b, 16)?;
 
-    Ok(Rgb::from([r, g, b]))
+    Ok(Rgba::from([r, g, b, 255]))
 }
 
 fn sanatize_text(text: String) -> String {
@@ -340,10 +343,11 @@ fn get_characters(charset: Charset) -> Vec<char> {
     }
 }
 
-fn get_dimmed_color(color: &Rgb<u8>) -> Rgb<u8> {
-    Rgb::from([
+fn get_dimmed_color(color: &Rgba<u8>) -> Rgba<u8> {
+    Rgba::from([
         color[0] - (color[0] / 2),
         color[1] - (color[1] / 2),
         color[2] - (color[2] / 2),
+        color[3],
     ])
 }
